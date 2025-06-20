@@ -35,7 +35,7 @@ static parsec_task_t*
 sched_lfq_select(parsec_execution_stream_t *es,
                  int32_t* distance);
 static void sched_lfq_remove(parsec_context_t* master);
-static int flow_lfq_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_lfq_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 
 const parsec_sched_module_t parsec_sched_lfq_module = {
     &parsec_sched_lfq_component,
@@ -55,7 +55,7 @@ static int sched_lfq_install( parsec_context_t *master )
     return PARSEC_SUCCESS;
 }
 
-static int flow_lfq_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_lfq_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     parsec_mca_sched_local_queues_scheduler_object_t *sched_obj = NULL;
     int nq, hwloc_levels;

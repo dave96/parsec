@@ -27,6 +27,10 @@
 #include "parsec/dictionary.h"
 #include "parsec/utils/backoff.h"
 
+#ifdef PARSEC_HAVE_NOSV
+#include <nosv.h>
+#endif
+
 #include <signal.h>
 #if defined(PARSEC_HAVE_STRING_H)
 #include <string.h>
@@ -625,8 +629,12 @@ static int __parsec_taskpool_wait( parsec_taskpool_t* tp, parsec_execution_strea
 #endif /* defined(DISTRIBUTED) */
 
         if( misses_in_a_row > 1 ) {
+#ifndef PARSEC_HAVE_NOSV
             rqtp.tv_nsec = parsec_exponential_backoff(es, misses_in_a_row);
             nanosleep(&rqtp, NULL);
+#else
+            nosv_yield(0);
+#endif
         }
         misses_in_a_row++;  /* assume we fail to extract a task */
 

@@ -27,6 +27,8 @@
 #include "parsec/data_distribution.h"
 #include "parsec/utils/debug.h"
 #include "parsec/class/list.h"
+#include "parsec/class/mutex.h"
+#include "parsec/class/cond.h"
 #include "parsec/parsec_hwloc.h"
 #include "parsec/os-spec-timing.h"
 #include "parsec/sys/atomic.h"
@@ -61,7 +63,7 @@ typedef struct tl_freelist_buffer_s {
 
 typedef struct tl_freelist_s {
     tl_freelist_buffer_t *first;
-    pthread_mutex_t       lock;
+    parsec_mutex_t       lock;
     int                   nb_allocated;
 } tl_freelist_t;
 static int parsec_profiling_per_thread_buffer_freelist_min = 2;
@@ -89,7 +91,7 @@ static char  parsec_profiling_last_error[MAX_PROFILING_ERROR_STRING_LEN+1] = { '
 static int   parsec_profiling_raise_error = 0;
 
 /* File backend globals. */
-static pthread_mutex_t file_backend_lock = PTHREAD_MUTEX_INITIALIZER;
+static parsec_mutex_t file_backend_lock = PARSEC_MUTEX_INITIALIZER;
 static off_t  file_backend_next_offset = 0;
 static size_t file_backend_size = 0;
 static int    file_backend_fd = -1;
@@ -134,7 +136,7 @@ static off_t find_free_segment(void)
 {
     off_t my_offset;
     do_and_measure_perf(PERF_WAITING,
-      pthread_mutex_lock( &file_backend_lock ));
+      parsec_mutex_lock( &file_backend_lock ));
     if( file_backend_next_offset + event_buffer_size > file_backend_size ) {
         file_backend_size += parsec_profiling_file_multiplier * event_buffer_size;
         do_and_measure_perf(PERF_RESIZE,
@@ -142,13 +144,13 @@ static off_t find_free_segment(void)
               fprintf(stderr, "### Profiling: unable to resize backend file to %"PRIu64" bytes: %s\n",
                       (uint64_t)file_backend_size, strerror(errno));
               file_backend_extendable = 0;
-              pthread_mutex_unlock(&file_backend_lock);
+              parsec_mutex_unlock(&file_backend_lock);
               return (off_t)-1;
           });
     }
     my_offset = file_backend_next_offset;
     file_backend_next_offset += event_buffer_size;
-    pthread_mutex_unlock(&file_backend_lock);
+    parsec_mutex_unlock(&file_backend_lock);
     return my_offset;
 }
 
@@ -237,15 +239,15 @@ allocate_from_freelist(tl_freelist_t *fl)
         return NULL;
     }
 
-    pthread_mutex_lock(&fl->lock);
+    parsec_mutex_lock(&fl->lock);
     head = fl->first;
     if(NULL != head) {
         fl->first = head->next;
-        pthread_mutex_unlock(&fl->lock);
+        parsec_mutex_unlock(&fl->lock);
         res = (parsec_profiling_buffer_t*)head;
     } else {
         fl->nb_allocated++;
-        pthread_mutex_unlock(&fl->lock);
+        parsec_mutex_unlock(&fl->lock);
         res = profiling_allocate_new_buffer();
     }
     return res;
@@ -271,7 +273,7 @@ free_to_freelist(tl_freelist_t *fl, parsec_profiling_buffer_t *b)
         return;
 #else
     do_and_measure_perf(PERF_WAITING,
-      pthread_mutex_lock( &file_backend_lock ));
+      parsec_mutex_lock( &file_backend_lock ));
     do_and_measure_perf(PERF_LSEEK,
       ret = lseek(file_backend_fd, b->this_buffer_file_offset, SEEK_SET));
     if(ret == (off_t)-1 ) {
@@ -285,14 +287,14 @@ free_to_freelist(tl_freelist_t *fl, parsec_profiling_buffer_t *b)
                      (long)b->this_buffer_file_offset, strerror(errno));
         }
     }
-    pthread_mutex_unlock( &file_backend_lock );
+    parsec_mutex_unlock( &file_backend_lock );
     profiling_assign_buffer_to_free_segment(b);
 #endif
 
-    pthread_mutex_lock(&fl->lock);
+    parsec_mutex_lock(&fl->lock);
     ((tl_freelist_buffer_t *)b)->next = fl->first;
     fl->first = (tl_freelist_buffer_t*)b;
-    pthread_mutex_unlock(&fl->lock);
+    parsec_mutex_unlock(&fl->lock);
 }
 
 
@@ -323,62 +325,62 @@ typedef struct io_cmd_s {
 typedef struct io_cmd_queue_s {
     io_cmd_t *next;
     io_cmd_t *last;
-    pthread_mutex_t lock;
-    pthread_cond_t  cond;
+    parsec_mutex_t lock;
+    parsec_cond_t  cond;
 } io_cmd_queue_t;
 static io_cmd_queue_t cmd_queue;
 static io_cmd_queue_t free_cmd_queue;
 static pthread_t io_helper_thread_id;
 
 static int             io_cmd_flush_counter;
-static pthread_mutex_t io_cmd_flush_mutex;
-static pthread_cond_t  io_cmd_flush_cond;
+static parsec_mutex_t io_cmd_flush_mutex;
+static parsec_cond_t  io_cmd_flush_cond;
 
 static io_cmd_t *io_cmd_allocate(void)
 {
     io_cmd_t *cmd;
-    pthread_mutex_lock(&free_cmd_queue.lock);
+    parsec_mutex_lock(&free_cmd_queue.lock);
     if( free_cmd_queue.next == NULL ) {
-        pthread_mutex_unlock(&free_cmd_queue.lock);
+        parsec_mutex_unlock(&free_cmd_queue.lock);
         cmd = (io_cmd_t*)malloc(sizeof(io_cmd_t));
     } else {
         cmd = free_cmd_queue.next;
         free_cmd_queue.next = cmd->next;
-        pthread_mutex_unlock(&free_cmd_queue.lock);
+        parsec_mutex_unlock(&free_cmd_queue.lock);
     }
     return cmd;
 }
 
 static void io_cmd_free(io_cmd_t *cmd)
 {
-    pthread_mutex_lock(&free_cmd_queue.lock);
+    parsec_mutex_lock(&free_cmd_queue.lock);
     cmd->next = free_cmd_queue.next;
     free_cmd_queue.next = cmd;
-    pthread_mutex_unlock(&free_cmd_queue.lock);
+    parsec_mutex_unlock(&free_cmd_queue.lock);
 }
 
 static void io_cmd_queue_init(io_cmd_queue_t *queue)
 {
     queue->next = NULL;
     queue->last = NULL;
-    pthread_mutex_init(&queue->lock, NULL);
-    pthread_cond_init(&queue->cond, NULL);
+    parsec_mutex_init(&queue->lock, NULL);
+    parsec_cond_init(&queue->cond, NULL);
 
 }
 
 static void io_cmd_queue_destroy(io_cmd_queue_t *queue)
 {
     io_cmd_t *cmd;
-    pthread_mutex_lock(&queue->lock);
+    parsec_mutex_lock(&queue->lock);
     while( NULL != queue->next ) {
         cmd = queue->next;
         queue->next = cmd->next;
         free(cmd);
     }
     queue->last = NULL;
-    pthread_mutex_unlock(&queue->lock);
-    pthread_mutex_destroy(&queue->lock);
-    pthread_cond_destroy(&queue->cond);
+    parsec_mutex_unlock(&queue->lock);
+    parsec_mutex_destroy(&queue->lock);
+    parsec_cond_destroy(&queue->cond);
 }
 
 static void *io_helper_thread_fct(void *_)
@@ -388,21 +390,21 @@ static void *io_helper_thread_fct(void *_)
     (void)_;
 
     while( stop == 0 ) {
-        pthread_mutex_lock(&cmd_queue.lock);
+        parsec_mutex_lock(&cmd_queue.lock);
         while( NULL == cmd_queue.next ) {
-            pthread_cond_wait(&cmd_queue.cond, &cmd_queue.lock);
+            parsec_cond_wait(&cmd_queue.cond, &cmd_queue.lock);
         }
         cmd = cmd_queue.next;
         if( cmd_queue.next == cmd_queue.last )
             cmd_queue.last = NULL;
         cmd_queue.next = cmd->next;
-        pthread_mutex_unlock(&cmd_queue.lock);
+        parsec_mutex_unlock(&cmd_queue.lock);
 
         if( IO_CMD_FLUSH == cmd->buffer ) {
-            pthread_mutex_lock(&io_cmd_flush_mutex);
+            parsec_mutex_lock(&io_cmd_flush_mutex);
             io_cmd_flush_counter++;
-            pthread_cond_signal(&io_cmd_flush_cond);
-            pthread_mutex_unlock(&io_cmd_flush_mutex);
+            parsec_cond_signal(&io_cmd_flush_cond);
+            parsec_mutex_unlock(&io_cmd_flush_mutex);
         } else if( IO_CMD_STOP == cmd->buffer ) {
             stop = 1;
         } else {
@@ -423,8 +425,8 @@ static void io_helper_thread_init(void)
     io_cmd_queue_init(&cmd_queue);
     io_cmd_queue_init(&free_cmd_queue);
     io_cmd_flush_counter = 0;
-    pthread_mutex_init(&io_cmd_flush_mutex, NULL);
-    pthread_cond_init(&io_cmd_flush_cond, NULL);
+    parsec_mutex_init(&io_cmd_flush_mutex, NULL);
+    parsec_cond_init(&io_cmd_flush_cond, NULL);
 
     pthread_create(&io_helper_thread_id, NULL, io_helper_thread_fct, NULL);
 }
@@ -563,7 +565,7 @@ int parsec_profiling_init( int process_id )
 #if defined(PARSEC_PROFILING_USE_HELPER_THREAD)
     io_helper_thread_init();
 #endif
-    
+
     __profile_initialized = 1; //* confirmed */
     return 0;
 }
@@ -603,7 +605,7 @@ parsec_profiling_stream_t* parsec_profiling_stream_init( size_t length, const ch
     sprof->buffers_freelist = (tl_freelist_t*)malloc(sizeof(tl_freelist_t));
     tl_freelist_t *t_fl = sprof->buffers_freelist;
     tl_freelist_buffer_t *e;
-    pthread_mutex_init(&t_fl->lock, NULL);
+    parsec_mutex_init(&t_fl->lock, NULL);
     e = (tl_freelist_buffer_t*)profiling_allocate_new_buffer();
     if( NULL == e ) {
         free(sprof->buffers_freelist);
@@ -682,7 +684,7 @@ int parsec_profiling_fini( void )
             }
         }
 
-        pthread_mutex_destroy(&fl->lock);
+        parsec_mutex_destroy(&fl->lock);
         free(fl);
         free(t->hr_id);
         free(t);
@@ -695,18 +697,18 @@ int parsec_profiling_fini( void )
     cmd->buffer = IO_CMD_STOP;
     cmd->fl = NULL;
     cmd->next = NULL;
-    pthread_mutex_lock(&cmd_queue.lock);
+    parsec_mutex_lock(&cmd_queue.lock);
     if( NULL == cmd_queue.last ) {
         cmd_queue.last = cmd_queue.next = cmd;
     } else {
         cmd_queue.last->next = cmd;
         cmd_queue.last = cmd;
     }
-    pthread_cond_signal(&cmd_queue.cond);
-    pthread_mutex_unlock(&cmd_queue.lock);
+    parsec_cond_signal(&cmd_queue.cond);
+    parsec_mutex_unlock(&cmd_queue.lock);
     pthread_join(io_helper_thread_id, NULL);
 #endif
-    
+
     if( parsec_profiling_show_profiling_performance ) {
         parsec_profiling_perf_t *pa = parsec_profiling_global_perf;
         char *ti;
@@ -760,7 +762,7 @@ int parsec_profiling_fini( void )
         default_freelist->first = b->next;
         free(b);
     }
-    pthread_mutex_destroy(&default_freelist->lock);
+    parsec_mutex_destroy(&default_freelist->lock);
     free(default_freelist);
 
     parsec_profiling_dictionary_flush();
@@ -787,7 +789,7 @@ int parsec_profiling_reset( void )
     return 0;
 }
 
-static pthread_mutex_t profiling_keyword_lock = PTHREAD_MUTEX_INITIALIZER;
+static parsec_mutex_t profiling_keyword_lock = PARSEC_MUTEX_INITIALIZER;
 int parsec_profiling_add_dictionary_keyword( const char* key_name, const char* attributes,
                                             size_t info_length,
                                             const char* convertor_code,
@@ -798,7 +800,7 @@ int parsec_profiling_add_dictionary_keyword( const char* key_name, const char* a
     int pos = -1;
 
     if( !__profile_initialized ) return 0;
-    pthread_mutex_lock(&profiling_keyword_lock);
+    parsec_mutex_lock(&profiling_keyword_lock);
     for( i = 0; i < parsec_prof_keys_count; i++ ) {
         if( NULL == parsec_prof_keys[i].name ) {
             if( -1 == pos ) {
@@ -833,7 +835,7 @@ int parsec_profiling_add_dictionary_keyword( const char* key_name, const char* a
     *key_start = START_KEY(pos);
     *key_end = END_KEY(pos);
 profiling_keyword_out:
-    pthread_mutex_unlock(&profiling_keyword_lock);
+    parsec_mutex_unlock(&profiling_keyword_lock);
     return ret;
 }
 
@@ -916,15 +918,15 @@ static void write_down_existing_buffer(tl_freelist_t *fl,
     cmd->fl = fl;
     cmd->next = NULL;
     do_and_measure_perf(PERF_USER_WAITING,
-       pthread_mutex_lock(&cmd_queue.lock));
+       parsec_mutex_lock(&cmd_queue.lock));
     if( NULL == cmd_queue.last ) {
         cmd_queue.last = cmd_queue.next = cmd;
     } else {
         cmd_queue.last->next = cmd;
         cmd_queue.last = cmd;
     }
-    pthread_cond_signal(&cmd_queue.cond);
-    pthread_mutex_unlock(&cmd_queue.lock);
+    parsec_cond_signal(&cmd_queue.cond);
+    parsec_mutex_unlock(&cmd_queue.lock);
 #else
     free_to_freelist(fl, buffer);
 #endif
@@ -1001,7 +1003,7 @@ parsec_profiling_trace_flags_info_fn(parsec_profiling_stream_t* context, int key
 
     if( key < 2 || key >= 2*parsec_prof_keys_count ) {
         if( !parsec_prof_warning_issued ) {
-            fprintf(stderr, 
+            fprintf(stderr,
                     "*** PaRSEC Profiling Warning *** Logging an event with key %d which is either reserved (0 and 1) or larger than the highest registered key (%d). Profiling might be corrupted.\n",
                     key, 2*parsec_prof_keys_count);
             parsec_prof_warning_issued = 1;
@@ -1364,30 +1366,30 @@ int parsec_profiling_dbp_dump( void )
 
 #if defined(PARSEC_PROFILING_USE_HELPER_THREAD)
     int my_flush_ticket;
-    pthread_mutex_lock(&io_cmd_flush_mutex);
+    parsec_mutex_lock(&io_cmd_flush_mutex);
     my_flush_ticket = io_cmd_flush_counter + 1;
-    pthread_mutex_unlock(&io_cmd_flush_mutex);
+    parsec_mutex_unlock(&io_cmd_flush_mutex);
 
     io_cmd_t *cmd = io_cmd_allocate();
     cmd->buffer = IO_CMD_FLUSH;
     cmd->fl = NULL;
     cmd->next = NULL;
     do_and_measure_perf(PERF_USER_WAITING,
-       pthread_mutex_lock(&cmd_queue.lock));
+       parsec_mutex_lock(&cmd_queue.lock));
     if( NULL == cmd_queue.last ) {
         cmd_queue.last = cmd_queue.next = cmd;
     } else {
         cmd_queue.last->next = cmd;
         cmd_queue.last = cmd;
     }
-    pthread_cond_signal(&cmd_queue.cond);
-    pthread_mutex_unlock(&cmd_queue.lock);
+    parsec_cond_signal(&cmd_queue.cond);
+    parsec_mutex_unlock(&cmd_queue.lock);
 
-    pthread_mutex_lock(&io_cmd_flush_mutex);
+    parsec_mutex_lock(&io_cmd_flush_mutex);
     while( io_cmd_flush_counter != my_flush_ticket ) {
-        pthread_cond_wait(&io_cmd_flush_cond, &io_cmd_flush_mutex);
+        parsec_cond_wait(&io_cmd_flush_cond, &io_cmd_flush_mutex);
     }
-    pthread_mutex_unlock(&io_cmd_flush_mutex);
+    parsec_mutex_unlock(&io_cmd_flush_mutex);
 #endif
 
 #if defined(PARSEC_PROFILING_USE_MMAP)
@@ -1414,13 +1416,13 @@ int parsec_profiling_dbp_dump( void )
 #endif
 
     /* Close the backend file */
-    pthread_mutex_lock(&file_backend_lock);
+    parsec_mutex_lock(&file_backend_lock);
     close(file_backend_fd);
     file_backend_fd = -1;
     file_backend_extendable = 0;
     free(bpf_filename);
     bpf_filename = NULL;
-    pthread_mutex_unlock(&file_backend_lock);
+    parsec_mutex_unlock(&file_backend_lock);
 
     if( parsec_profiling_raise_error )
         return PARSEC_ERROR;
@@ -1454,7 +1456,7 @@ int parsec_profiling_dbp_start( const char *basefile, const char *hr_info )
 
     default_freelist = malloc(sizeof(tl_freelist_t));
     tl_freelist_buffer_t *e;
-    pthread_mutex_init(&default_freelist->lock, NULL);
+    parsec_mutex_init(&default_freelist->lock, NULL);
     e = (tl_freelist_buffer_t*)profiling_allocate_new_buffer();
     if( NULL == e ) {
         return PARSEC_ERR_OUT_OF_RESOURCE;

@@ -37,7 +37,7 @@ static parsec_task_t*
 sched_llp_select(parsec_execution_stream_t *es,
                  int32_t* distance);
 static void sched_llp_remove(parsec_context_t* master);
-static int flow_llp_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_llp_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 
 
 /**
@@ -164,7 +164,7 @@ static int sched_llp_install( parsec_context_t *master )
  *  @param[INOUT] barrier the barrier used to synchronize all the es
  *  @return PARSEC_SUCCESS in case of success, a negative number otherwise
  */
-static int flow_llp_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_llp_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     /* Every flow creates its own local object */
     parsec_lifo_with_prio_t *lifo = PARSEC_OBJ_NEW(parsec_lifo_with_prio_t);

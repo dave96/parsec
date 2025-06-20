@@ -702,7 +702,7 @@ static int open_file(int i)
         if (NULL == filename) {
             return PARSEC_ERR_OUT_OF_RESOURCE;
         }
-        strncpy(filename, output_dir, MAXPATHLEN);
+        strncpy(filename, output_dir, MAXPATHLEN - 1);
         strcat(filename, "/");
         if (NULL != output_prefix) {
             strcat(filename, output_prefix);

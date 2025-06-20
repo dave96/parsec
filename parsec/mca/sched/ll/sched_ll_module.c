@@ -32,7 +32,7 @@ static parsec_task_t*
 sched_ll_select(parsec_execution_stream_t *es,
                  int32_t* distance);
 static void sched_ll_remove(parsec_context_t* master);
-static int flow_ll_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_ll_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 static int sched_ll_warning_issued = 0;
 
 const parsec_sched_module_t parsec_sched_ll_module = {
@@ -133,7 +133,7 @@ static int sched_ll_install( parsec_context_t *master )
  *  @param[INOUT] barrier the barrier used to synchronize all the es
  *  @return PARSEC_SUCCESS in case of success, a negative number otherwise
  */
-static int flow_ll_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_ll_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     /* Every flow creates its own local object */
     es->scheduler_object = PARSEC_OBJ_NEW(parsec_lifo_with_local_counter_t);

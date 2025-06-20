@@ -359,7 +359,8 @@ char *parsec_argv_join_range(char **argv, size_t start, size_t end, int delimite
 
     /* Loop filling in the string. */
 
-    str[--str_len] = '\0';
+    if (str_len > 0)
+      str[--str_len] = '\0';
     p = &argv[start];
     pp = *p;
 

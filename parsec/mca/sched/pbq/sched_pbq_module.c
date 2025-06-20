@@ -15,6 +15,7 @@
 #include "parsec/parsec_internal.h"
 #include "parsec/utils/debug.h"
 #include "parsec/class/dequeue.h"
+#include "parsec/class/barrier.h"
 
 #include "parsec/mca/sched/sched.h"
 #include "parsec/mca/sched/sched_local_queues_utils.h"
@@ -33,7 +34,7 @@ static int sched_pbq_schedule(parsec_execution_stream_t* es,
                               int32_t distance);
 static parsec_task_t *sched_pbq_select(parsec_execution_stream_t *es,
                                                     int32_t* distance);
-static int flow_pbq_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_pbq_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 static void sched_pbq_remove(parsec_context_t* master);
 
 const parsec_sched_module_t parsec_sched_pbq_module = {
@@ -54,7 +55,7 @@ static int sched_pbq_install( parsec_context_t *master )
     return PARSEC_SUCCESS;
 }
 
-static int flow_pbq_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_pbq_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     parsec_mca_sched_local_queues_scheduler_object_t *sched_obj = NULL;
     int nq = 1, hwloc_levels;
