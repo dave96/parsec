@@ -20,6 +20,8 @@
 #include <mpi.h>
 #endif
 #include "parsec/class/list.h"
+#include "parsec/class/cond.h"
+#include "parsec/class/mutex.h"
 #include "parsec/os-spec-timing.h"
 
 static unsigned int NBELT = 8192;
@@ -192,8 +194,8 @@ static void check_list_sort(parsec_list_t* l1, parsec_list_t* l2)
     check_lifo_translate_inorder(l2,l1,"l2","l1");
 }
 
-static pthread_mutex_t heavy_synchro_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  heavy_synchro_cond = PTHREAD_COND_INITIALIZER;
+static parsec_mutex_t heavy_synchro_lock = PARSEC_MUTEX_INITIALIZER;
+static parsec_cond_t  heavy_synchro_cond = PARSEC_COND_INITIALIZER;
 static unsigned int    heavy_synchro = 0;
 
 static void *lifo_translate_elements_random(void *params)
@@ -203,11 +205,11 @@ static void *lifo_translate_elements_random(void *params)
     uint64_t *p = (uint64_t*)params;
     parsec_time_t start, end;
 
-    pthread_mutex_lock(&heavy_synchro_lock);
+    parsec_mutex_lock(&heavy_synchro_lock);
     while( heavy_synchro == 0 ) {
-        pthread_cond_wait(&heavy_synchro_cond, &heavy_synchro_lock);
+        parsec_cond_wait(&heavy_synchro_cond, &heavy_synchro_lock);
     }
-    pthread_mutex_unlock(&heavy_synchro_lock);
+    parsec_mutex_unlock(&heavy_synchro_lock);
 
     i = 0;
     start = take_time();
@@ -329,10 +331,10 @@ int main(int argc, char *argv[])
         pthread_create(&threads[e], NULL, lifo_translate_elements_random, &times[e]);
     }
 
-    pthread_mutex_lock(&heavy_synchro_lock);
+    parsec_mutex_lock(&heavy_synchro_lock);
     heavy_synchro = NBTIMES;
-    pthread_cond_broadcast(&heavy_synchro_cond);
-    pthread_mutex_unlock(&heavy_synchro_lock);
+    parsec_cond_broadcast(&heavy_synchro_cond);
+    parsec_mutex_unlock(&heavy_synchro_lock);
 
     sum_time = 0;
     for(e = 0; e < nbthreads; e++) {

@@ -320,6 +320,8 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/class/parsec_rwlock.h
         ${CMAKE_CURRENT_SOURCE_DIR}/class/fifo.h
         ${CMAKE_CURRENT_SOURCE_DIR}/class/barrier.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/class/cond.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/class/mutex.h
         ${CMAKE_CURRENT_SOURCE_DIR}/class/list.h
         ${CMAKE_CURRENT_SOURCE_DIR}/class/info.h
         ${CMAKE_CURRENT_SOURCE_DIR}/class/parsec_future.h

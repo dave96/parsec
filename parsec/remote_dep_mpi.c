@@ -10,6 +10,8 @@
 #include <mpi.h>
 #include "profiling.h"
 #include "parsec/class/list.h"
+#include "parsec/class/cond.h"
+#include "parsec/class/mutex.h"
 #include "parsec/utils/output.h"
 #include "parsec/utils/mca_param.h"
 #include "parsec/utils/debug.h"
@@ -110,8 +112,8 @@ static int parsec_mpi_same_pos_items_size = 0;
 
 static int mpi_initialized = 0;
 #if defined(PARSEC_REMOTE_DEP_USE_THREADS)
-static pthread_mutex_t mpi_thread_mutex;
-static pthread_cond_t mpi_thread_condition;
+static parsec_mutex_t mpi_thread_mutex;
+static parsec_cond_t mpi_thread_condition;
 #endif
 
 parsec_execution_stream_t parsec_comm_es = {
@@ -271,8 +273,8 @@ remote_dep_dequeue_init(parsec_context_t* context)
     PARSEC_OBJ_CONSTRUCT(&dep_cmd_fifo, parsec_list_t);
 
     /* Build the condition used to drive the MPI thread */
-    pthread_mutex_init( &mpi_thread_mutex, NULL );
-    pthread_cond_init( &mpi_thread_condition, NULL );
+    parsec_mutex_init( &mpi_thread_mutex, NULL );
+    parsec_cond_init( &mpi_thread_condition, NULL );
 
     pthread_attr_init(&thread_attr);
     pthread_attr_setscope(&thread_attr, PTHREAD_SCOPE_SYSTEM);
@@ -292,7 +294,7 @@ remote_dep_dequeue_init(parsec_context_t* context)
     * then call condition signal. This insure proper synchronization. Similar
     * mechanism will be used to turn on and off the MPI thread.
     */
-    pthread_mutex_lock(&mpi_thread_mutex);
+    parsec_mutex_lock(&mpi_thread_mutex);
 
     pthread_create(&dep_thread_id,
                    &thread_attr,
@@ -300,7 +302,7 @@ remote_dep_dequeue_init(parsec_context_t* context)
                    (void*)context);
 
     /* Wait until the MPI thread signals it's awakening */
-    pthread_cond_wait( &mpi_thread_condition, &mpi_thread_mutex );
+    parsec_cond_wait( &mpi_thread_condition, &mpi_thread_mutex );
   up_and_running:
     mpi_initialized = 1;  /* up and running */
     remote_dep_ce_init(context);
@@ -331,8 +333,8 @@ remote_dep_dequeue_fini(parsec_context_t* context)
         parsec_dequeue_push_back(&dep_cmd_queue, (parsec_list_item_t*) item);
 
         /* I am supposed to own the lock. Wake the MPI thread */
-        pthread_cond_signal(&mpi_thread_condition);
-        pthread_mutex_unlock(&mpi_thread_mutex);
+        parsec_cond_signal(&mpi_thread_condition);
+        parsec_mutex_unlock(&mpi_thread_mutex);
         pthread_join(dep_thread_id, &ret);
         assert((parsec_context_t*)ret == context);
     }
@@ -369,8 +371,8 @@ remote_dep_dequeue_on(parsec_context_t* context)
 
     /* At this point I am supposed to own the mutex */
     parsec_communication_engine_up = 2;
-    pthread_cond_signal(&mpi_thread_condition);
-    pthread_mutex_unlock(&mpi_thread_mutex);
+    parsec_cond_signal(&mpi_thread_condition);
+    parsec_mutex_unlock(&mpi_thread_mutex);
 
     /* The waking up of the communication thread happen asynchronously, once the thread
      * receives the signal. At that point it acquires the mpi_thread_mutex and set the
@@ -404,7 +406,7 @@ remote_dep_dequeue_off(parsec_context_t* context)
     parsec_dequeue_push_back(&dep_cmd_queue, (parsec_list_item_t*) item);
 
     /* wait until we own the PaRSEC MPI synchronization mutex */
-    pthread_mutex_lock(&mpi_thread_mutex);
+    parsec_mutex_lock(&mpi_thread_mutex);
     assert( 1 == parsec_communication_engine_up );
     (void)context;  /* silence warning */
 
@@ -431,8 +433,8 @@ void* remote_dep_dequeue_main(parsec_context_t* context)
     PARSEC_PAPI_SDE_THREAD_INIT();
 
     /* Now synchronize with the main thread */
-    pthread_mutex_lock(&mpi_thread_mutex);
-    pthread_cond_signal(&mpi_thread_condition);
+    parsec_mutex_lock(&mpi_thread_mutex);
+    parsec_cond_signal(&mpi_thread_condition);
 
 #ifdef PARSEC_PROF_TRACE
     parsec_comm_es.es_profile = parsec_profiling_stream_init( 2*1024*1024, "Comm thread");
@@ -447,7 +449,7 @@ void* remote_dep_dequeue_main(parsec_context_t* context)
 
     while( -1 != whatsup ) {
         /* Let's wait until we are awaken */
-        pthread_cond_wait(&mpi_thread_condition, &mpi_thread_mutex);
+        parsec_cond_wait(&mpi_thread_condition, &mpi_thread_mutex);
 
         PARSEC_DEBUG_VERBOSE(20, parsec_comm_output_stream, "MPI: comm engine ON on process %d/%d",
                              context->my_rank, context->nb_nodes);
@@ -2212,8 +2214,8 @@ remote_dep_mpi_get_end_cb(parsec_comm_engine_t *ce,
  * configuration has been noticed. This allows the full reconfiguration of the
  * communication engine, including the allocation of the necessary structures on
  * the correct memory node.
- * 
- * @param context 
+ *
+ * @param context
  * @return int mostly PARSEC_SUCCESS
  */
 int remote_dep_ce_reconfigure(parsec_context_t* context)

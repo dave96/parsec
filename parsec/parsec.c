@@ -165,7 +165,7 @@ static inline void thread_schedule_init() {
     PARSEC_TLS_KEY_CREATE(parsec_tls_nosv_task);
 }
 static inline void thread_schedule_attach(const char *name) {
-    nosv_task_t *task;
+    nosv_task_t task;
     int rc = nosv_attach(&task, NULL, name, NOSV_ATTACH_NONE);
     if (rc != 0) {
         parsec_warning("Failed to attach thread to NOS-V (%d)", rc);
@@ -174,13 +174,24 @@ static inline void thread_schedule_attach(const char *name) {
 }
 
 static inline void thread_schedule_detach() {
-    nosv_task_t *task = (nosv_task_t*)PARSEC_TLS_GET_SPECIFIC(parsec_tls_nosv_task);
+    nosv_task_t task = (nosv_task_t)PARSEC_TLS_GET_SPECIFIC(parsec_tls_nosv_task);
     int rc = nosv_detach(NOSV_DETACH_NONE);
     if (rc != 0) {
         parsec_warning("Failed to detach thread to NOS-V (%d)", rc);
     }
     PARSEC_TLS_SET_SPECIFIC(parsec_tls_nosv_task, NULL);
 }
+
+__attribute__((constructor))
+static void parsec_nosv_constructor(void) {
+    nosv_init();
+}
+
+__attribute__((destructor))
+static void parsec_nosv_destructor(void) {
+    nosv_shutdown();
+}
+
 #else  // PARSEC_HAVE_NOSV
 static inline void thread_schedule_init() { }
 static inline void thread_schedule_attach(const char *name) { }
@@ -889,7 +900,7 @@ parsec_context_t* parsec_init( int nb_cores, int* pargc, char** pargv[] )
     }
 
     __parsec_thread_init( &startup[0] );
-    thread_schedule_attach("main thread");
+    // thread_schedule_attach("main thread");
 
     /* Wait until all threads are done binding themselves */
     parsec_barrier_wait( &(context->barrier) );
@@ -1318,6 +1329,7 @@ int parsec_fini( parsec_context_t** pcontext )
     *pcontext = NULL;
 
     parsec_class_finalize();
+
     parsec_debug_fini();  /* Always last */
     return PARSEC_SUCCESS;
 }

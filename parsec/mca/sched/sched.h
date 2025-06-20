@@ -173,10 +173,9 @@
 #define MCA_SCHED_H
 
 #include "parsec/parsec_config.h"
+#include "parsec/class/barrier.h"
 #include "parsec/mca/mca.h"
 #include "parsec/execution_stream.h"
-
-struct parsec_barrier_t;
 
 BEGIN_C_DECLS
 
@@ -230,7 +229,7 @@ typedef int  (*parsec_sched_base_module_install_fn_t)(parsec_context_t* master);
  * @return PARSEC_SUCCESS if the scheduler can be used; an error code otherwise
  */
 typedef int  (*parsec_sched_base_module_flow_init_fn_t)(parsec_execution_stream_t* es,
-                                                       struct parsec_barrier_t*);
+                                                       parsec_barrier_t*);
 /**
  * @brief Scheduling function
  *

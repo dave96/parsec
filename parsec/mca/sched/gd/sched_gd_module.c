@@ -29,7 +29,7 @@ static int sched_gd_schedule(parsec_execution_stream_t* es,
 static parsec_task_t*
 sched_gd_select(parsec_execution_stream_t *es,
                 int32_t* distance);
-static int flow_gd_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_gd_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 static void sched_gd_remove(parsec_context_t* master);
 
 const parsec_sched_module_t parsec_sched_gd_module = {
@@ -74,7 +74,7 @@ static int sched_gd_install( parsec_context_t *master )
     return PARSEC_SUCCESS;
 }
 
-static int flow_gd_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_gd_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     parsec_vp_t *vp = es->virtual_process;
     /*
@@ -92,7 +92,7 @@ static int flow_gd_init(parsec_execution_stream_t* es, struct parsec_barrier_t* 
         es->scheduler_object = PARSEC_OBJ_NEW(parsec_dequeue_t);
 #endif
     }
-    
+
     parsec_barrier_wait(barrier);
 
     if (es != vp->execution_streams[0]) {
@@ -105,7 +105,7 @@ static int flow_gd_init(parsec_execution_stream_t* es, struct parsec_barrier_t* 
         PARSEC_OBJ_RETAIN(LOCAL_SCHED_OBJECT(es));
 #endif
     }
-    
+
 #if defined(PARSEC_PAPI_SDE)
     if( es->th_id ) {
         char event_name[PARSEC_PAPI_SDE_MAX_COUNTER_NAME_LEN];

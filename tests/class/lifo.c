@@ -20,6 +20,8 @@
 #endif
 
 #include "parsec/class/lifo.h"
+#include "parsec/class/cond.h"
+#include "parsec/class/mutex.h"
 #include "parsec/os-spec-timing.h"
 
 static unsigned int NBELT = 8192;
@@ -98,7 +100,7 @@ static void check_translate_outoforder(parsec_lifo_t *l1,
         seen[elt->base] = 1;
     }
     /* No need to check that seen[e] == 1 for all e: this is captured by if (NULL == elt) */
-    if( (elt = (elt_t*)parsec_lifo_pop( l1 )) != NULL ) 
+    if( (elt = (elt_t*)parsec_lifo_pop( l1 )) != NULL )
         fatal(" ! Error: unexpected element of base %u in %s: it should be empty\n",
               elt->base, lifo1name);
 }
@@ -149,8 +151,8 @@ static void check_translate_inorder(parsec_lifo_t *l1,
 
 
 
-static pthread_mutex_t heavy_synchro_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  heavy_synchro_cond = PTHREAD_COND_INITIALIZER;
+static parsec_mutex_t heavy_synchro_lock = PARSEC_MUTEX_INITIALIZER;
+static parsec_cond_t  heavy_synchro_cond = PARSEC_COND_INITIALIZER;
 static unsigned int    heavy_synchro = 0;
 
 static void *translate_elements_random(void *params)
@@ -160,11 +162,11 @@ static void *translate_elements_random(void *params)
     uint64_t *p = (uint64_t*)params;
     parsec_time_t start, end;
 
-    pthread_mutex_lock(&heavy_synchro_lock);
+    parsec_mutex_lock(&heavy_synchro_lock);
     while( heavy_synchro == 0 ) {
-        pthread_cond_wait(&heavy_synchro_cond, &heavy_synchro_lock);
+        parsec_cond_wait(&heavy_synchro_cond, &heavy_synchro_lock);
     }
-    pthread_mutex_unlock(&heavy_synchro_lock);
+    parsec_mutex_unlock(&heavy_synchro_lock);
 
     i = 0;
     start = take_time();
@@ -281,10 +283,10 @@ int main(int argc, char *argv[])
         pthread_create(&threads[e], NULL, translate_elements_random, &times[e]);
     }
 
-    pthread_mutex_lock(&heavy_synchro_lock);
+    parsec_mutex_lock(&heavy_synchro_lock);
     heavy_synchro = NBTIMES;
-    pthread_cond_broadcast(&heavy_synchro_cond);
-    pthread_mutex_unlock(&heavy_synchro_lock);
+    parsec_cond_broadcast(&heavy_synchro_cond);
+    parsec_mutex_unlock(&heavy_synchro_lock);
 
     sum_time = 0;
     for(e = 0; e < nbthreads; e++) {
@@ -312,7 +314,7 @@ int main(int argc, char *argv[])
     ch = 0;
     while( !parsec_lifo_is_empty( &lifo2 ) ) {
         elt = (elt_t*)parsec_lifo_pop( &lifo2 );
-        if( elt == NULL ) 
+        if( elt == NULL )
             fatal(" ! Error: list lifo2 is supposed to be non empty, but it is!\n");
         if( elt == p )
             fatal(" ! I keep poping the same element in the list at element %u... It is now officially a frying pan\n",

@@ -9,6 +9,9 @@
 
 #include "parsec/parsec_config.h"
 
+#include "parsec/class/cond.h"
+#include "parsec/class/mutex.h"
+
 #include <unistd.h>
 #include <pthread.h>
 
@@ -32,6 +35,16 @@
  */
 BEGIN_C_DECLS
 
+#ifdef PARSEC_HAVE_NOSV
+#include <nosv/compat.h>
+
+typedef nosv_barrier_t parsec_barrier_t;
+#define parsec_barrier_init nosv_barrier_init
+#define parsec_barrier_wait nosv_barrier_wait
+#define parsec_barrier_destroy nosv_barrier_destroy
+#define PARSEC_IMPLEMENT_BARRIERS 0
+
+#else
 /** @cond FALSE */
 #if defined(_POSIX_BARRIERS) && (_POSIX_BARRIERS - 20012L) >= 0 && 0
 
@@ -57,8 +70,8 @@ typedef struct parsec_barrier_t {
     volatile int        curcount;    /**< Number of threads currently inside the barrier */
     volatile int        generation;  /**< Unique number used to count how many times this
                                       *   barrier was used, and enable debugging unmatching barriers */
-    pthread_mutex_t     mutex;       /**< Lock on the barrier, to make threads wait passively */
-    pthread_cond_t      cond;        /**< Condition on the barrier, to allow waking up threads that wait
+    parsec_mutex_t     mutex;       /**< Lock on the barrier, to make threads wait passively */
+    parsec_cond_t      cond;        /**< Condition on the barrier, to allow waking up threads that wait
                                       *   passively once all threads have joined the barrier */
 } parsec_barrier_t;
 
@@ -71,11 +84,11 @@ typedef struct parsec_barrier_t {
  * passive behavior of the barrier mutex
  *
  * @param[out] barrier the barrier to initialize
- * @param[in] pthread_mutex_attr attributes to pass to pthread_mutex_init
+ * @param[in] parsec_mutex_attr attributes to pass to parsec_mutex_init
  * @param[in] count number of threads that will join the barrier
  * @return 0 if success, a POSIX error code otherwise.
  */
-int parsec_barrier_init(parsec_barrier_t *barrier, const void *pthread_mutex_attr, unsigned int count);
+int parsec_barrier_init(parsec_barrier_t *barrier, const void *parsec_mutex_attr, unsigned int count);
 
 /**
  * @brief synchronize  at  a  barrier
@@ -110,6 +123,8 @@ int parsec_barrier_destroy(parsec_barrier_t* barrier);
 #define PARSEC_IMPLEMENT_BARRIERS 1
 
 #endif
+
+#endif // PARSEC_HAS_NOSV
 
 END_C_DECLS
 

@@ -29,7 +29,7 @@ static int sched_ip_schedule(parsec_execution_stream_t* es,
                              int32_t distance);
 static parsec_task_t* sched_ip_select(parsec_execution_stream_t *es,
                                                    int32_t* distance);
-static int flow_ip_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier);
+static int flow_ip_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier);
 static void sched_ip_remove(parsec_context_t* master);
 
 const parsec_sched_module_t parsec_sched_ip_module = {
@@ -52,7 +52,7 @@ static int sched_ip_install( parsec_context_t *master )
     return PARSEC_SUCCESS;
 }
 
-static int flow_ip_init(parsec_execution_stream_t* es, struct parsec_barrier_t* barrier)
+static int flow_ip_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier)
 {
     parsec_vp_t *vp = es->virtual_process;
 
