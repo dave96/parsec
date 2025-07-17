@@ -335,11 +335,11 @@ int __parsec_schedule_vp(parsec_execution_stream_t* es,
     const parsec_vp_t** vps = (const parsec_vp_t**)es->virtual_process->parsec_context->virtual_processes;
     int ret = 0;
 
-#if  defined(PARSEC_DEBUG_PARANOID)
+// #if  defined(PARSEC_DEBUG_PARANOID)
     /* As the setting of the next_task is not protected no thread should call
      * this function with a stream other than its own. */
     assert( (NULL == es) || (parsec_my_execution_stream() == es) );
-#endif  /* defined(PARSEC_DEBUG_PARANOID) */
+// #endif  /* defined(PARSEC_DEBUG_PARANOID) */
 
     if( NULL == es || !parsec_runtime_keep_highest_priority_task || NULL == es->scheduler_object) {
         for(int vp = 0; vp < es->virtual_process->parsec_context->nb_vp; vp++ ) {
@@ -363,14 +363,14 @@ int __parsec_schedule_vp(parsec_execution_stream_t* es,
         target_es = vps[vp]->execution_streams[0];
 
         if( vp == es->virtual_process->vp_id ) {
-            if( NULL == es->next_task ) {
-                es->next_task = ring;
-                ring = (parsec_task_t*)parsec_list_item_ring_chop(&ring->super);
-                if( NULL == ring ) {
-                    task_rings[vp] = NULL;  /* remove the tasks already scheduled */
-                    continue;
-                }
-            }
+            // if( NULL == es->next_task ) {
+            //     es->next_task = ring;
+            //     ring = (parsec_task_t*)parsec_list_item_ring_chop(&ring->super);
+            //     if( NULL == ring ) {
+            //         task_rings[vp] = NULL;  /* remove the tasks already scheduled */
+            //         continue;
+            //     }
+            // }
             target_es = es;
         }
         ret = __parsec_schedule(target_es, ring, distance);
@@ -634,15 +634,19 @@ static int __parsec_taskpool_wait( parsec_taskpool_t* tp, parsec_execution_strea
             nanosleep(&rqtp, NULL);
 #else
             nosv_yield(0);
+            es = parsec_my_execution_stream();
 #endif
         }
         misses_in_a_row++;  /* assume we fail to extract a task */
 
+        assert(es == parsec_my_execution_stream());
         task = __parsec_get_next_task(es, &distance);
+        assert(es == parsec_my_execution_stream());
         if( NULL != task ) {
             misses_in_a_row = 0;  /* reset the misses counter */
 
             rc = __parsec_task_progress(es, task, distance);
+            assert(es == parsec_my_execution_stream());
             (void)rc;  /* for now ignore the return value */
 
             nbiterations++;
@@ -759,17 +763,25 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 #endif /* defined(DISTRIBUTED) */
 
         if( misses_in_a_row > 1 ) {
+#ifndef PARSEC_HAVE_NOSV
             rqtp.tv_nsec = parsec_exponential_backoff(es, misses_in_a_row);
             nanosleep(&rqtp, NULL);
+#else
+            nosv_yield(0);
+            es = parsec_my_execution_stream();
+#endif
         }
         misses_in_a_row++;  /* assume we fail to extract a task */
 
+        assert(es == parsec_my_execution_stream());
         task = __parsec_get_next_task(es, &distance);
+        assert(es == parsec_my_execution_stream());
         if( NULL != task ) {
             misses_in_a_row = 0;  /* reset the misses counter */
 
             PARSEC_PINS(es, SELECT_END, task);
             rc = __parsec_task_progress(es, task, distance);
+            assert(es == parsec_my_execution_stream());
             PARSEC_PINS(es, SELECT_BEGIN, task);
             (void)rc;  /* for now ignore the return value */
 
@@ -781,6 +793,7 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 
     /* We're all done ? */
     parsec_barrier_wait( &(parsec_context->barrier) );
+    assert(es == parsec_my_execution_stream());
 
 #if defined(PARSEC_SIM)
     if( PARSEC_THREAD_IS_MASTER(es) ) {
@@ -824,6 +837,7 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 
 int parsec_context_add_taskpool( parsec_context_t* context, parsec_taskpool_t* tp )
 {
+    printf("Add tp %p\n", tp);
     if( NULL == parsec_current_scheduler) {
         parsec_set_scheduler( context );
     }
