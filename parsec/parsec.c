@@ -159,6 +159,7 @@ static PARSEC_TLS_DECLARE(parsec_tls_execution_stream);
 #ifdef PARSEC_HAVE_NOSV
 
 #include <nosv.h>
+#include <nosv/hwinfo.h>
 
 static PARSEC_TLS_DECLARE(parsec_tls_nosv_task);
 static inline void thread_schedule_init() {
@@ -279,6 +280,42 @@ static int parsec_parse_binding_parameter(const char* option, parsec_context_t* 
                                          __parsec_temporary_thread_initialization_t* startup);
 static int parsec_parse_comm_binding_parameter(int core, parsec_context_t* context);
 
+static void parsec_init_master_es(parsec_execution_stream_t* es, __parsec_temporary_thread_initialization_t* startup)
+{
+    assert(es);
+    struct timeval tv_now;
+    gettimeofday(&tv_now, NULL);
+
+    es->th_id            = startup->th_id;
+    es->virtual_process  = startup->virtual_process;
+    es->rand_seed        = tv_now.tv_usec + startup->th_id;
+    es->scheduler_object = NULL;
+    es->next_task        = NULL;
+    startup->virtual_process->execution_streams[startup->th_id] = es;
+    es->core_id          = startup->bindto;
+#if defined(PARSEC_HAVE_HWLOC)
+    es->socket_id        = parsec_hwloc_socket_id(startup->bindto);
+#else
+    es->socket_id        = 0;
+#endif  /* defined(PARSEC_HAVE_HWLOC) */
+
+    es->is_master = 1;
+    PARSEC_PINS_THREAD_INIT(es);
+
+    if( NULL != parsec_current_scheduler->module.flow_init )
+        parsec_current_scheduler->module.flow_init(es, NULL);
+
+    es->context_mempool = &(es->virtual_process->context_mempool.thread_mempools[es->th_id]);
+    for(int pi = 0; pi <= MAX_PARAM_COUNT; pi++) {
+        es->datarepo_mempools[pi] = &(es->virtual_process->datarepo_mempools[pi].thread_mempools[es->th_id]);
+    }
+    es->dependencies_mempool = &(es->virtual_process->dependencies_mempool.thread_mempools[es->th_id]);
+
+#if defined(PARSEC_SIM)
+    es->largest_simulation_date = 0;
+#endif
+}
+
 static void* __parsec_thread_init( __parsec_temporary_thread_initialization_t* startup )
 {
     parsec_execution_stream_t* es;
@@ -383,6 +420,8 @@ static void* __parsec_thread_init( __parsec_temporary_thread_initialization_t* s
     es->largest_simulation_date = 0;
 #endif
 
+    es->is_master = (es->th_id == 0) && (es->virtual_process->vp_id == 0);
+
     /* The main thread of VP 0 will go back to the user level */
     if( PARSEC_THREAD_IS_MASTER(es) ) {
         return NULL;
@@ -421,6 +460,8 @@ static void parsec_vp_init( parsec_vp_t *vp,
             parsec_warning("multiple core to bind on... for now, do nothing"); //TODO: what does that mean?
     }
 }
+
+static parsec_execution_stream_t **aux_execution_streams;
 
 parsec_context_t* parsec_init( int nb_cores, int* pargc, char** pargv[] )
 {
@@ -685,7 +726,8 @@ parsec_context_t* parsec_init( int nb_cores, int* pargc, char** pargv[] )
     t = 0;
     for( p = 0; p < nb_vp; p++ ) {
         parsec_vp_t *vp;
-        vp = (parsec_vp_t *)malloc(sizeof(parsec_vp_t) + (vpmap_get_nb_threads_in_vp(p)-1) * sizeof(parsec_execution_stream_t*));
+        int nr_exec_streams = vpmap_get_nb_threads_in_vp(p) + nosv_get_num_cpus(); // -1?
+        vp = (parsec_vp_t *)malloc(sizeof(parsec_vp_t) + (nr_exec_streams) * sizeof(parsec_execution_stream_t*));
         vp->parsec_context = context;
         vp->vp_id = p;
         context->virtual_processes[p] = vp;
@@ -905,6 +947,19 @@ parsec_context_t* parsec_init( int nb_cores, int* pargc, char** pargv[] )
     /* Wait until all threads are done binding themselves */
     parsec_barrier_wait( &(context->barrier) );
     context->__parsec_internal_finalization_counter++;
+
+    // Initialize extra master ESs
+    const int ncpus = nosv_get_num_cpus();
+    aux_execution_streams = &context->virtual_processes[0]->execution_streams[nb_total_comp_threads];
+    for (int i = 0; i < ncpus; ++i) {
+        __parsec_temporary_thread_initialization_t startup_tmp;
+        startup_tmp.th_id = nb_total_comp_threads + i;
+        startup_tmp.virtual_process = context->virtual_processes[0];
+        startup_tmp.bindto = i;
+        parsec_execution_stream_t *es = malloc(sizeof(parsec_execution_stream_t));
+        assert(es);
+        parsec_init_master_es(es, &startup_tmp);
+    }
 
     /* Release the temporary array used for starting up the threads */
     {
@@ -2208,6 +2263,7 @@ void parsec_taskpool_unregister( parsec_taskpool_t* tp )
 
 void parsec_taskpool_free(parsec_taskpool_t *tp)
 {
+    printf("Free tp %p\n", tp);
     assert(NULL != tp);
     PARSEC_OBJ_RELEASE(tp);
 }
@@ -2807,7 +2863,14 @@ int parsec_add_fetch_runtime_task( parsec_taskpool_t *tp, int32_t nb_tasks )
  */
 parsec_execution_stream_t *parsec_my_execution_stream(void)
 {
-    return (parsec_execution_stream_t*)PARSEC_TLS_GET_SPECIFIC(parsec_tls_execution_stream);
+    parsec_execution_stream_t *es = (parsec_execution_stream_t*)PARSEC_TLS_GET_SPECIFIC(parsec_tls_execution_stream);
+
+    if (!es) {
+        assert(nosv_self());
+        return aux_execution_streams[nosv_get_current_logical_cpu()];
+    }
+
+    return es;
 }
 
 void parsec_set_my_execution_stream(parsec_execution_stream_t *es)

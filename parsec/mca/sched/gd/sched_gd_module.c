@@ -93,7 +93,8 @@ static int flow_gd_init(parsec_execution_stream_t* es, parsec_barrier_t* barrier
 #endif
     }
 
-    parsec_barrier_wait(barrier);
+    if (barrier)
+        parsec_barrier_wait(barrier);
 
     if (es != vp->execution_streams[0]) {
 #if defined(PARSEC_PAPI_SDE)

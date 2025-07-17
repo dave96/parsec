@@ -367,14 +367,14 @@ int __parsec_schedule_vp(parsec_execution_stream_t* submission_es,
         target_es = context->virtual_processes[vp]->execution_streams[0];
 
         if( vp == submission_es->virtual_process->vp_id ) {
-            if( NULL == submission_es->next_task ) {
-                submission_es->next_task = ring;
-                ring = (parsec_task_t*)parsec_list_item_ring_chop(&ring->super);
-                if( NULL == ring ) {
-                    task_rings[vp] = NULL;  /* remove the tasks already scheduled */
-                    continue;
-                }
-            }
+            // if( NULL == submission_es->next_task ) {
+            //     submission_es->next_task = ring;
+            //     ring = (parsec_task_t*)parsec_list_item_ring_chop(&ring->super);
+            //     if( NULL == ring ) {
+            //         task_rings[vp] = NULL;  /* remove the tasks already scheduled */
+            //         continue;
+            //     }
+            // }
             /* Beware we are changing the submission execution stream for the local vp */
             target_es = submission_es;
         }
@@ -649,15 +649,19 @@ static int __parsec_taskpool_wait( parsec_taskpool_t* tp, parsec_execution_strea
             nanosleep(&rqtp, NULL);
 #else
             nosv_yield(0);
+            es = parsec_my_execution_stream();
 #endif
         }
         misses_in_a_row++;  /* assume we fail to extract a task */
 
+        assert(es == parsec_my_execution_stream());
         task = __parsec_get_next_task(es, &distance);
+        assert(es == parsec_my_execution_stream());
         if( NULL != task ) {
             misses_in_a_row = 0;  /* reset the misses counter */
 
             rc = __parsec_task_progress(es, task, distance);
+            assert(es == parsec_my_execution_stream());
             (void)rc;  /* for now ignore the return value */
 
             nbiterations++;
@@ -774,17 +778,25 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 #endif /* defined(DISTRIBUTED) */
 
         if( misses_in_a_row > 1 ) {
+#ifndef PARSEC_HAVE_NOSV
             rqtp.tv_nsec = parsec_exponential_backoff(es, misses_in_a_row);
             nanosleep(&rqtp, NULL);
+#else
+            nosv_yield(0);
+            es = parsec_my_execution_stream();
+#endif
         }
         misses_in_a_row++;  /* assume we fail to extract a task */
 
+        assert(es == parsec_my_execution_stream());
         task = __parsec_get_next_task(es, &distance);
+        assert(es == parsec_my_execution_stream());
         if( NULL != task ) {
             misses_in_a_row = 0;  /* reset the misses counter */
 
             PARSEC_PINS(es, SELECT_END, task);
             rc = __parsec_task_progress(es, task, distance);
+            assert(es == parsec_my_execution_stream());
             PARSEC_PINS(es, SELECT_BEGIN, task);
             (void)rc;  /* for now ignore the return value */
 
@@ -796,6 +808,7 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 
     /* We're all done ? */
     parsec_barrier_wait( &(parsec_context->barrier) );
+    assert(es == parsec_my_execution_stream());
 
 #if defined(PARSEC_SIM)
     if( PARSEC_THREAD_IS_MASTER(es) ) {
@@ -839,6 +852,7 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 
 int parsec_context_add_taskpool( parsec_context_t* context, parsec_taskpool_t* tp )
 {
+    printf("Add tp %p\n", tp);
     if( NULL == parsec_current_scheduler) {
         parsec_set_scheduler( context );
     }

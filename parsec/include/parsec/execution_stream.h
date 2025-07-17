@@ -37,6 +37,7 @@ struct parsec_execution_stream_s {
     int32_t   th_id;        /**< Internal thread identifier. A thread belongs to a vp */
     int core_id;            /**< Core on which the thread is bound (hwloc in order numbering) */
     int socket_id;          /**< Socket on which the thread is bound (hwloc in order numerotation) */
+    int is_master;
 
     pthread_t pthread_id;     /**< POSIX thread identifier. */
 
@@ -167,7 +168,8 @@ struct parsec_context_s {
     struct parsec_vp_s* virtual_processes[1];
 };
 
-#define PARSEC_THREAD_IS_MASTER(eu) ( ((eu)->th_id == 0) && ((eu)->virtual_process->vp_id == 0) )
+// #define PARSEC_THREAD_IS_MASTER(eu) ( ((eu)->th_id == 0) && ((eu)->virtual_process->vp_id == 0) )
+#define PARSEC_THREAD_IS_MASTER(eu) ((eu)->is_master == 1)
 
 END_C_DECLS
 
