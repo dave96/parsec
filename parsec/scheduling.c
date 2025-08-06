@@ -852,7 +852,6 @@ int __parsec_context_wait( parsec_execution_stream_t* es )
 
 int parsec_context_add_taskpool( parsec_context_t* context, parsec_taskpool_t* tp )
 {
-    printf("Add tp %p\n", tp);
     if( NULL == parsec_current_scheduler) {
         parsec_set_scheduler( context );
     }

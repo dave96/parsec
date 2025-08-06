@@ -30,6 +30,7 @@
  */
 
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <sys/time.h>
 
 #include "parsec/parsec_config.h"
@@ -64,7 +65,7 @@ static int parsec_dtd_debug_verbose = -1;
 
 static int parsec_dtd_profile_verbose = 0;
 
-static parsec_dc_key_t parsec_dtd_dc_id = 0;
+static _Atomic parsec_dc_key_t parsec_dtd_dc_id = 0;
 int32_t __parsec_dtd_is_initialized = 0; /**< Indicates init of dtd environment is completed */
 
 int parsec_dtd_window_size             = 8000;   /**< Default window size */
@@ -410,7 +411,7 @@ parsec_dtd_taskpool_destructor(parsec_dtd_taskpool_t *tp)
 #if defined(PARSEC_PROF_TRACE)
         free((void *)tp->super.profiling_array);
 #endif /* defined(PARSEC_PROF_TRACE) */
- 
+
     if( NULL != tp->super.taskpool_name) {
         free(tp->super.taskpool_name);
         tp->super.taskpool_name = NULL;
@@ -1226,7 +1227,8 @@ parsec_dtd_data_collection_init(parsec_data_collection_t *dc)
                            nb,
                            DTD_key_fns,
                            dc->tile_h_table);
-    parsec_dc_register_id(dc, parsec_dtd_dc_id++);
+    parsec_dc_key_t new_key = atomic_fetch_add(&parsec_dtd_dc_id, 1);
+    parsec_dc_register_id(dc, new_key);
 }
 
 void

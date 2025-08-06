@@ -2263,7 +2263,6 @@ void parsec_taskpool_unregister( parsec_taskpool_t* tp )
 
 void parsec_taskpool_free(parsec_taskpool_t *tp)
 {
-    printf("Free tp %p\n", tp);
     assert(NULL != tp);
     PARSEC_OBJ_RELEASE(tp);
 }
